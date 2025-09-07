@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Deal Entry - Property Broker</title>
+    <style>
+      /* Mobile-first simple styling */
+      :root {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto,
+          "Helvetica Neue", Arial;
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #f6f7f9;
+        color: #1a1a1a;
+      }
+      .container {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0;
+      }
+      form {
+        background: #fff;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 6px 18px rgba(20, 20, 20, 0.06);
+      }
+      label {
+        display: block;
+        font-size: 0.9rem;
+        margin-top: 12px;
+        color: #333;
+      }
+      input[type="text"],
+      input[type="number"],
+      input[type="date"],
+      select {
+        width: 100%;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #d8dbe0;
+        margin-top: 6px;
+        font-size: 1rem;
+        box-sizing: border-box;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      button {
+        flex: 1;
+        padding: 12px;
+        border-radius: 10px;
+        border: 0;
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #2f855a;
+        color: white;
+      }
+      button.ghost {
+        background: #edf2f7;
+        color: #111;
+      }
+      .msg {
+        margin-top: 12px;
+        font-size: 0.95rem;
+      }
+      /* Larger screens: two columns */
+      @media (min-width: 640px) {
+        .row.two {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Deal Entry</h1>
+      </header>
+
+      <form id="dealForm" autocomplete="off">
+        <div class="row">
+          <label for="dealer">Dealer Name</label>
+          <input
+            id="dealer"
+            name="dealer"
+            type="text"
+            required
+            placeholder="e.g. Rajesh Kumar"
+          />
+
+          <label for="customer">Customer Name</label>
+          <input
+            id="customer"
+            name="customer"
+            type="text"
+            required
+            placeholder="e.g. Sunita Sharma"
+          />
+
+          <div class="two row">
+            <div>
+              <label for="amount">Amount (in Rs.)</label>
+              <input
+                id="amount"
+                name="amount"
+                type="number"
+                min="0"
+                required
+                placeholder="e.g. 1250000"
+              />
+            </div>
+            <div>
+              <label for="dealDate">Deal Date</label>
+              <input id="dealDate" name="dealDate" type="date" required />
+            </div>
+          </div>
+
+          <label for="status">Status</label>
+          <select id="status" name="status" required>
+            <option value="">Select status</option>
+            <option>Contacted</option>
+            <option>Negotiating</option>
+            <option>Closed</option>
+            <option>Follow-up</option>
+          </select>
+        </div>
+
+        <div class="actions">
+          <button class="primary" type="submit">Save Deal</button>
+          <button class="ghost" type="reset">Clear</button>
+        </div>
+
+        <div id="message" class="msg" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+
+    <script>
+          const webhookURL = "https://n8n.dakshjain.me/webhook-test/c6a91077-4afd-46c2-a0e0-b086b77500c1"; // e.g. https://n8n.example.com/webhook/YourWorkflow/yourId
+          const username = "SanjayJain12";
+          const password = "SanjayJain12";
+
+        const res = await fetch(webhookURL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Basic " + btoa(username + ":" + password)  // 🔑
+        },
+        body: JSON.stringify(data)
+      });
+
+          const form = document.getElementById('dealForm');
+          const msg = document.getElementById('message');
+
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            msg.textContent = "Saving...";
+            const data = {
+              dealer: form.dealer.value.trim(),
+              customer: form.customer.value.trim(),
+              amount: form.amount.value.trim(),
+              dealDate: form.dealDate.value, // yyyy-mm-dd
+              status: form.status.value
+            };
+
+            // Basic front-end validation
+            if (!data.dealer || !data.customer || !data.amount || !data.dealDate || !data.status) {
+              msg.textContent = "Please fill all fields.";
+              return;
+            }
+
+            try {
+              const res = await fetch(webhookURL, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-secret': secret
+                },
+                body: JSON.stringify(data)
+              });
+
+              if (!res.ok) {
+                const text = await res.text();
+                throw new Error(`${res.status} ${res.statusText} - ${text}`);
+              }
+
+              msg.textContent = "Saved! ✅";
+              form.reset();
+            } catch (err) {
+              console.error(err);
+              msg.textContent = "Error saving. Try again or contact admin.";
+            }
+          });
+    </script>
+  </body>
+</html>
