@@ -71,73 +71,63 @@
   </div>
 
   <script>
-    // ---------- CONFIG: set these before testing ----------
-    const WEBHOOK_URL = ".netlify/functions/proxy";
-    const BASIC_USERNAME = "SanjayJain12";   // WARNING: exposing creds in client is insecure
-    const BASIC_PASSWORD = "SanjayJain12";   // use only for quick tests
-    // ---------- END CONFIG --------------------------------
+  // ---------- CONFIG: set these before testing ----------
+  // call the Netlify function (use leading slash)
+  const WEBHOOK_URL = "/.netlify/functions/proxy";
+  // Remove BASIC_USERNAME/PASSWORD from the client for security.
+  // ---------- END CONFIG --------------------------------
 
-    const form = document.getElementById('dealForm');
-    const msg = document.getElementById('message');
+  const form = document.getElementById('dealForm');
+  const msg = document.getElementById('message');
 
-    // helper: show message
-    function show(text, isError = false) {
-      msg.textContent = text;
-      msg.style.color = isError ? 'crimson' : 'green';
+  function show(text, isError = false) {
+    msg.textContent = text;
+    msg.style.color = isError ? 'crimson' : 'green';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    show("Saving...");
+
+    const data = {
+      dealer: form.dealer.value.trim(),
+      customer: form.customer.value.trim(),
+      amount: form.amount.value.trim(),
+      dealDate: form.dealDate.value,
+      status: form.status.value
+    };
+
+    if (!data.dealer || !data.customer || !data.amount || !data.dealDate || !data.status) {
+      show("Please fill all fields.", true);
+      return;
     }
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      show("Saving...");
+    try {
+      const res = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+          // DO NOT send Authorization header from browser
+        },
+        body: JSON.stringify(data)
+      });
 
-      const data = {
-        dealer: form.dealer.value.trim(),
-        customer: form.customer.value.trim(),
-        amount: form.amount.value.trim(),
-        dealDate: form.dealDate.value,
-        status: form.status.value
-      };
-
-      // client validation
-      if (!data.dealer || !data.customer || !data.amount || !data.dealDate || !data.status) {
-        show("Please fill all fields.", true);
+      const text = await res.text();
+      if (!res.ok) {
+        console.error('Upstream error:', res.status, text);
+        show("Error saving. See console for details.", true);
         return;
       }
 
-      try {
-        // Build Basic auth header
-        const authHeader = "Basic " + btoa(BASIC_USERNAME + ":" + BASIC_PASSWORD);
+      console.log('n8n response:', res.status, text);
+      show("Saved! ✅");
+      form.reset();
+    } catch (err) {
+      console.error('Network error:', err);
+      show("Network error. Check console.", true);
+    }
+  });
+</script>
 
-        const res = await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': authHeader
-            // If you are using x-secret validation instead,
-            // replace the Authorization header with:
-            // 'x-secret': 'YOUR_SECRET'
-          },
-          body: JSON.stringify(data)
-        });
-
-        // read text even if non-JSON so we can debug
-        const text = await res.text();
-
-        if (!res.ok) {
-          console.error('Upstream error:', res.status, text);
-          show("Error saving. See console for details.", true);
-          return;
-        }
-
-        // success
-        console.log('n8n response:', res.status, text);
-        show("Saved! ✅");
-        form.reset();
-      } catch (err) {
-        console.error('Network error:', err);
-        show("Network error. Check console.", true);
-      }
-    });
-  </script>
 </body>
 </html>
