@@ -1,107 +1,109 @@
 // netlify/functions/proxy.js
-// Paste this into netlify/functions/proxy.js and deploy.
+// Improved error reporting and fetch timeout for debugging 502 issues.
+
+const DEFAULT_TIMEOUT = 10000; // 10s
 
 exports.handler = async function (event, context) {
-  // Prefer the runtime-provided ALLOWED_ORIGIN, otherwise allow any origin.
   const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
   const originHeader = event.headers && (event.headers.origin || event.headers.Origin);
 
-  // Helper to build CORS headers for every response
   function corsHeaders() {
-    // if ALLOWED_ORIGIN is '*' just return '*', otherwise echo the request origin (if matches)
     const allowOrigin = ALLOWED_ORIGIN === '*' ? '*' : (originHeader || ALLOWED_ORIGIN);
     return {
       'Access-Control-Allow-Origin': allowOrigin,
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      // allow Authorization so browser can send it (but you don't need to send it from the client)
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-secret',
       'Access-Control-Allow-Credentials': 'true'
     };
   }
 
-  // Handle preflight
+  // Preflight
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: corsHeaders(),
-      body: ''
-    };
+    return { statusCode: 204, headers: corsHeaders(), body: '' };
   }
 
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Method Not Allowed' })
-    };
+    return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
   try {
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { dealer, customer, amount, dealDate, status } = body;
-
+    const payload = event.body ? JSON.parse(event.body) : {};
+    // simple validation
+    const { dealer, customer, amount, dealDate, status } = payload;
     if (!dealer || !customer || !amount || !dealDate || !status) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ error: 'Missing required fields' })
+        body: JSON.stringify({ error: 'Missing required fields', required: ['dealer','customer','amount','dealDate','status'] })
       };
     }
 
-    // Optional origin check: if ALLOWED_ORIGIN is not '*' and origin header is present, ensure it matches.
-    if (ALLOWED_ORIGIN !== '*' && originHeader && originHeader !== ALLOWED_ORIGIN) {
-      return {
-        statusCode: 403,
-        headers: corsHeaders(),
-        body: JSON.stringify({ error: 'Forbidden origin' })
-      };
-    }
-
-    // Upstream n8n webhook - set via Netlify environment variables
+    // Check env var for upstream URL
     const n8nUrl = process.env.N8N_WEBHOOK_URL;
     if (!n8nUrl) {
+      console.error('Missing env: N8N_WEBHOOK_URL');
       return {
         statusCode: 500,
         headers: corsHeaders(),
-        body: JSON.stringify({ error: 'Missing N8N_WEBHOOK_URL env var' })
+        body: JSON.stringify({ error: 'Server misconfiguration: missing N8N_WEBHOOK_URL' })
       };
     }
 
-    // Use server-side credentials (do NOT take these from the browser)
+    // Basic auth from env (server-side only)
     const username = process.env.N8N_USER || '';
     const password = process.env.N8N_PASS || '';
-    const auth = username || password ? 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64') : null;
+    const authHeader = username || password ? 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64') : null;
 
-    // Forward request to n8n
-    const forward = await fetch(n8nUrl, {
+    // Timeout helper for fetch (Node global fetch used by Netlify)
+    const timeoutMs = Number(process.env.PROXY_TIMEOUT_MS) || DEFAULT_TIMEOUT;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    // Forward request
+    const forwardRes = await fetch(n8nUrl, {
       method: 'POST',
-      headers: Object.assign(
-        { 'Content-Type': 'application/json' },
-        auth ? { 'Authorization': auth } : {}
-      ),
-      body: JSON.stringify({ dealer, customer, amount, dealDate, status })
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeader ? { 'Authorization': authHeader } : {}),
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
 
-    const text = await forward.text();
-    if (!forward.ok) {
+    clearTimeout(timeout);
+
+    const upstreamText = await forwardRes.text().catch((e) => {
+      console.error('Error reading upstream response body:', e);
+      return '';
+    });
+
+    // Log for debugging (Netlify function logs)
+    console.log('Upstream call:', { url: n8nUrl, status: forwardRes.status, upstreamText: upstreamText.slice(0, 1000) });
+
+    if (!forwardRes.ok) {
+      // Surface upstream status and body to response for easier debugging (non-secret)
       return {
         statusCode: 502,
         headers: corsHeaders(),
-        body: JSON.stringify({ error: 'Upstream error', detail: text })
+        body: JSON.stringify({
+          error: 'Upstream returned an error',
+          upstreamStatus: forwardRes.status,
+          upstreamBody: upstreamText
+        })
       };
     }
 
+    // Success
     return {
       statusCode: 200,
       headers: corsHeaders(),
-      body: JSON.stringify({ ok: true, upstream: text })
+      body: JSON.stringify({ ok: true, upstreamStatus: forwardRes.status, upstreamBody: upstreamText })
     };
   } catch (err) {
-    console.error('Proxy error', err);
+    // Identify timeout separately
+    const isAbort = err.name === 'AbortError' || (err.code === 'ABORT_ERR' || false);
+    console.error('Proxy exception:', err);
     return {
-      statusCode: 500,
+      statusCode: 502,
       headers: corsHeaders(),
-      body: JSON.stringify({ error: 'Server error' })
+      body: JSON.stringify({ error: 'Proxy failed', detail: isAbort ? 'Upstream request timed out' : String(err) })
     };
   }
 };
